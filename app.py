@@ -5,6 +5,7 @@ import streamlit as st
 import os
 from PIL import Image, UnidentifiedImageError
 from io import BytesIO
+import hashlib
 import json
 import redis
 import uuid
@@ -112,36 +113,48 @@ async def run_workflow(inputs, session_id, config):
     except Exception as e:
         error(e)
 
-def perform_search_and_filter(query):
+def calculate_image_hash(image_bytes):
+    """Calculate the hash of an image."""
+    return hashlib.md5(image_bytes).hexdigest()
+
+async def perform_search_and_filter(query):
+    valid_image_urls = []  # List to store valid image URLs
+    unique_hashes = set()  # Set to track unique image hashes
     """Perform search and filter valid image URLs and fetch image bytes."""
-    results = asyncio.run(perform_search(query))
+    results = await perform_search(query)
     print("in the perform search")
-    valid_images = []  # List to store valid image URLs and bytes
-    for item in results:
+    
+    async def process_item(item):
         url = item['link']
-        # Attempt to fetch the image to validate the URL and get bytes
         try:
-            response = requests.get(url, allow_redirects=True, timeout=1)
+            response = await asyncio.to_thread(requests.get, url, allow_redirects=True, timeout=1)
             if response.status_code == 200:
                 img_bytes = BytesIO(response.content)
                 try:
-                    Image.open(img_bytes) # Verify it's a valid image
-                    valid_images.append({'url': url, 'bytes': img_bytes.getvalue()})
-                    logging.info(f"Valid image URL found and bytes fetched: {url}")
+                    img = Image.open(img_bytes) # Verify it's a valid image
+                    image_hash = calculate_image_hash(img_bytes.getvalue())
+                    if image_hash not in unique_hashes:
+                        unique_hashes.add(image_hash)
+                        valid_image_urls.append(url) # Store URL only
+                        logging.info(f"Valid and unique image URL found: {url}")
+                    else:
+                        logging.info(f"Duplicate image found, skipping: {url}")
                 except UnidentifiedImageError:
                     logging.warning(f"Invalid image format for URL: {url}")
             else:
                 logging.warning(f"Invalid image URL: {url}")
         except requests.RequestException:
             logging.warning(f"Invalid image URL: {url}")
+
+    tasks = [process_item(item) for item in results]
+    await asyncio.gather(*tasks)
     print("after the perform search")
     logging.info(f"Search results: {results}")
-    # Save valid URLs to Redis (still save URLs for redis loading)
-    for image_data in valid_images:
-        redis_client.rpush("image_urls", image_data['url'])  # Save each URL in a Redis list
+    # Save valid URLs to Redis (still save URLs for redis loading)  # Save each URL in a Redis list
     logging.info("Valid image URLs saved to Redis.")
-    
-    return valid_images
+    return valid_image_urls # Return URLs
+
+
 
 def check_url_validity(url):
     
@@ -161,17 +174,22 @@ def load_images_from_redis():
         logging.error(f"Error loading image URLs from Redis: {e}")
         return []
 
-def main():
-    # Load images from Redis and display them
-    image_urls = load_images_from_redis()
-    for image_url in image_urls:
-        # Fetch image
-        response = requests.get(image_url)
+async def fetch_image(url):
+    """Fetch image bytes from URL asynchronously."""
+    try:
+        response = requests.get(url, timeout=1)
         if response.status_code == 200:
-            img = Image.open(BytesIO(response.content))
-            st.image(img, use_container_width=True)
+            return BytesIO(response.content)
         else:
-            st.error("Failed to load image.")
+            logging.warning(f"Failed to fetch image from {url}: Status code {response.status_code}")
+            return None
+    except requests.RequestException as e:
+        logging.warning(f"Error fetching image from {url}: {e}")
+        return None
+
+async def main():
+    num_columns = 3
+    # Load image URLs from Redis
     col1, col2 = st.columns([3, 1])
     with col1:
         st.title("Conversational Agent Chatbot")
@@ -202,12 +220,19 @@ def main():
     if search_mode:
         search_query = st.chat_input("Search for images...")
         if search_query:
-            valid_images = perform_search_and_filter(search_query)
-            print(colored(f"valid_images: {valid_images}", "blue")) # Debug: Print valid_images
-            for image_data in valid_images:
-                print(colored(f"Displaying image URL: {image_data['url']}", "magenta")) # Debug: Print each URL before displaying
-                img = Image.open(BytesIO(image_data['bytes']))
-                st.image(img, use_container_width=True)  # Display valid images
+            valid_image_urls = await perform_search_and_filter(search_query) # Now returns URLs
+            print(colored(f"valid_images URLS: {valid_image_urls}", "blue")) # Debug: Print valid_images URLs
+            num_columns = 3 # Define number of columns for display
+            cols = st.columns(num_columns)
+            async def display_image(i, image_url, cols):
+                img_bytes = await fetch_image(image_url)
+                if img_bytes:
+                    img = Image.open(img_bytes)
+                    with cols[i % num_columns]:
+                        st.image(img, use_container_width =True)
+
+            tasks = [display_image(i, url, cols) for i, url in enumerate(valid_image_urls)]
+            await asyncio.gather(*tasks)
     else:
         user_input = st.chat_input("Type your message...")
         if user_input:
@@ -241,4 +266,5 @@ def main():
                 st.markdown("Invalid prompt format")
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
+
