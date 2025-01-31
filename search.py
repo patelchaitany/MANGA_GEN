@@ -1,13 +1,16 @@
-from crawl4ai import AsyncWebCrawler,BrowserConfig, CrawlerRunConfig,CacheMode
+from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
 from langchain_community.tools import DuckDuckGoSearchResults
 from crawl4ai.async_dispatcher import MemoryAdaptiveDispatcher
 import asyncio
 from crawl4ai.content_filter_strategy import BM25ContentFilter
 from crawl4ai.markdown_generation_strategy import DefaultMarkdownGenerator
+import os
 
-duckduckgo_search = DuckDuckGoSearchResults(output_format="list")
+# Adjust the number of results returned by DuckDuckGo
+duckduckgo_search = DuckDuckGoSearchResults(output_format="list", num_results=10)  # Example: increase to 50 results
 
 crawl4ai_search = AsyncWebCrawler()
+
 async def perform_search(query=None, search_engine="duckduckgo"):
     """
     Perform a search, crawl URLs, and return website content.
@@ -18,14 +21,14 @@ async def perform_search(query=None, search_engine="duckduckgo"):
     if search_engine == "duckduckgo":
         print("Performing search with DuckDuckGo...")
         search_results = duckduckgo_search.run(query)
-        urls = search_results # DuckDuckGoSearchResults returns a list
+        urls = search_results  # DuckDuckGoSearchResults returns a list
     else:
         raise ValueError(f"Invalid search engine: {search_engine}. Choose 'crawl4ai' or 'duckduckgo'.")
 
     print(f"URLs fetched from {search_engine}: {urls}")
 
     crawled_contents = []
-    browser_config = BrowserConfig(headless=False, verbose=False)
+    browser_config = BrowserConfig(headless=True, verbose=False)
 
     bm25_filter = BM25ContentFilter(
         user_query=query,
@@ -40,16 +43,18 @@ async def perform_search(query=None, search_engine="duckduckgo"):
     )
     run_config = CrawlerRunConfig(
         cache_mode=CacheMode.BYPASS,
-        stream=False , # Default: get all results at once
+        stream=False,  # Default: get all results at once
         markdown_generator=md_generator,
         scan_full_page=True,
         scroll_delay=0.2,
         delay_before_return_html=1,
         simulate_user=True,
+        wait_for_images=True,
         wait_until="domcontentloaded",
+        exclude_external_images=True
     )
     crawled_contents = []
-    async with AsyncWebCrawler(config=browser_config) as crawler: # Create crawler instance here
+    async with AsyncWebCrawler(config=browser_config) as crawler:  # Create crawler instance here
         final_url = [url['link'] for url in urls]
         results = await crawler.arun_many(
             urls=final_url,
@@ -58,11 +63,41 @@ async def perform_search(query=None, search_engine="duckduckgo"):
         )
         for result in results:
             if result.success:
-                crawled_contents.append(result.media.get("images",[]))
+                filtered_images = []
+                bm25_filter_image_desc = BM25ContentFilter(
+                    user_query=query,
+                    bm25_threshold=0.2
+                )
+                for i in result.media.get("images", []):
+                    scr = i.get('src', None)
+                    url = result.url
+                    alt = i.get('desc', '')
+                    score = i.get('score', 0)
+                    if scr and scr.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp')) and score>=6:
+                        filtered_images.append({
+                            'score': score,
+                            'link': scr,
+                            'src+url': url + scr,
+                        })
+                crawled_contents.extend(filtered_images)
             else:
                 print(f"failed")
 
-    return crawled_contents
+    # Filter and sort images by score (only include scores greater than 6)
+    sorted_images = sorted(
+        [img for img in crawled_contents if float(img.get('score', 0)) >= 6],
+        key=lambda x: float(x.get('score', 0)),
+        reverse=True
+    )
+
+    # Prepare table headers
+    table_header = "| Score | Link | Src+Url |\n|---|---|---|\n"
+    table_rows = ""
+    for image in sorted_images:
+        table_rows += f"| {image.get('score', '')} | {image.get('link', '')} | {image.get('src+url', '')} |\n"
+
+    # print(table_header + table_rows)
+    return sorted_images
 
 async def crawl_website(url):
     """
@@ -76,11 +111,11 @@ async def crawl_website(url):
         list: A list of text content from the crawled pages.
     """
     browser_config = BrowserConfig(
-    headless=False,
-    use_managed_browser = True,
+        headless=False,
+        use_managed_browser=True,
     )
-    crawler_config = CrawlerRunConfig( 
-        stream=False,    # Delay between scroll steps (in seconds)
+    crawler_config = CrawlerRunConfig(
+        stream=False,  # Delay between scroll steps (in seconds)
         scan_full_page=True,
         scroll_delay=0.2,
         delay_before_return_html=1,
@@ -94,9 +129,9 @@ async def crawl_website(url):
         max_session_permit=10
     )
     print(f"Crawling website: {url} with a limit of links to parse...")
-    crawled_contents=[]
-    async with AsyncWebCrawler(config=browser_config) as crawler: # Create crawler instance here
-        final_url = [url,"https://example.com/"]
+    crawled_contents = []
+    async with AsyncWebCrawler(config=browser_config) as crawler:  # Create crawler instance here
+        final_url = [url, "https://example.com/"]
         results = await crawler.arun_many(
             urls=final_url,
             config=crawler_config,
@@ -105,13 +140,11 @@ async def crawl_website(url):
 
         for result in results:
             if result.success:
-                crawled_contents.append(result.media.get("images",[]))
+                crawled_contents.append(result.media.get("images", []))
             else:
                 print(f"failed")
-      
 
     text_contents = [results[0].media]  # Assuming results contain a 'text' key
-    print(f"Text content fetched from: {url}")
     return crawled_contents
 
 def main():
@@ -125,12 +158,10 @@ def main():
         if choice == "1":
             query = input("Enter your search query: ")
             urls = asyncio.run(perform_search(query=query))
-            print(f"Search Results:\n{urls}")
         elif choice == "2":
             url = input("Enter the URL to crawl: ")
             try:
                 text_content = asyncio.run(crawl_website(url))
-                print(f"Crawled Content:\n{text_content}")
             except Exception as e:
                 print(f"Error: {e}")
         elif choice == "3":

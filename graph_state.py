@@ -24,7 +24,7 @@ class PromptSchema(BaseModel):
     character_or_scene_name: str = Field(..., title="Character/Scene Name", description="The name of the character or scene.")
     prompt: str = Field(..., title="Prompt", description="A detailed prompt including style, lighting, camera angle, etc.")
     negative_prompt: Optional[str] = Field(None, title="Negative Prompt", description="What to avoid in the generation.")
-
+    search_query: Optional[str] = Field(None, title="Search Query", description="The search query for the image.")
 
 class artist(BaseModel):
     responce : str = Field(...,description= "If function is called then it shoud empty otherwise it contain responce regarding user request")
@@ -33,7 +33,6 @@ class artist(BaseModel):
 class artist_responce(BaseModel):
     responce: List[PromptSchema] = Field(...,description="List of prompts for characters and scenes")
     final_answer : bool = Field(...,description="If user request is met or for asking the question to user then it should be True")
-
 
 class State(MessagesState):
     summary: str
@@ -44,8 +43,8 @@ class State(MessagesState):
     artist: Annotated[Sequence[BaseMessage], operator.add]
     critic: Annotated[Sequence[BaseMessage], operator.add]
     genral_assistance_: Annotated[Sequence[BaseMessage], operator.add]
+    image_urls : List[str]
     stable_diffusion_prompts: List[PromptSchema] = []
-
 
 def get_agent_name(agent:List[AgentConfig]) -> List[str]:
     name = [names.name for names in agent]
@@ -54,4 +53,3 @@ def get_agent_name(agent:List[AgentConfig]) -> List[str]:
 def get_agent_details(agent:List[AgentConfig]) -> List[str]:
     description = [details.description for details in agent]
     return description
-    

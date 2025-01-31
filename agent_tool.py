@@ -1,7 +1,7 @@
 from langchain_core.tools import tool
-
+from search import perform_search
 from langgraph.prebuilt.tool_executor import ToolExecutor,ToolInvocation
-
+import asyncio
 @tool
 def add(a: int, b: int) -> int:
     """Adds a and b.
@@ -31,6 +31,16 @@ def genrate_image(prompt: str) -> str:
         prompt: prompt string
     """
     return "Genrated Image"
-Tool_list = [add,multiply,genrate_image]
-Tools_Executor = ToolExecutor(Tool_list)
 
+@tool
+def search_images(query: str) -> list[str]:
+    """Searches for images on the web using DuckDuckGo.
+
+    Args:
+        query: The search query.
+    """
+    return asyncio.run(perform_search(query=query, search_engine="duckduckgo"))
+
+
+Tool_list = [add,multiply]
+Tools_Executor = ToolExecutor(Tool_list)

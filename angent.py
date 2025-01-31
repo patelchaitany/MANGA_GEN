@@ -31,6 +31,8 @@ import os
 from utils import calculate_levenshtein_similarity, word_by_word_levenshtein
 from context_agent import get_highest_relevance_messages
 from dotenv import load_dotenv
+from search import perform_search
+import asyncio
 
 # Load environment variables from .env file
 load_dotenv()
@@ -46,14 +48,11 @@ client = Client()
 
 #llm = OllamaLLM(model="llama3",temperature=0)
 memory = MemorySaver()
-#llm =GoogleGenerativeAI(model="gemini-2.0-flash-exp",google_api_key="AIzaSyCE7RJhTM6Il1Fbf7zr_jsIhfSOLKTga14",temperature=0,)
 llm = GoogleGenerativeAI(
     model="gemini-2.0-flash-exp",
     google_api_key=os.getenv("GOOGLE_API_KEY"),
     temperature=0,
 )
-#model_large = ChatGroq(temperature=0, groq_api_key="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", model_name="llama-3.3-70b-versatile")
-#llm = model_large
 model_large = llm
 
 def create_genral_agent(llm, system_message: str, name: str, examples="", tools=None, schema=None):
@@ -198,12 +197,19 @@ def artist_agent(llm, system_message: str, name: str, examples="", tools=None, s
             try:
                 if not isinstance(rsp, list):
                     rsp = [rsp]
+                
+                image_urls = []
+                for prompt in rsp:
+                    if hasattr(prompt, "search_query"):
+                        image_urls.extend(asyncio.run(perform_search(query=prompt.search_query, search_engine="duckduckgo")))
+                    
                 return Command(
                     update={
                         "name": name,
                         "artist": [msg],
                         "stable_diffusion_prompts": rsp,
                         "messages": [writer_messages[-1]],
+                        "image_urls": image_urls
                     },
                     goto=END
                 )

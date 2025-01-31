@@ -132,7 +132,8 @@ You are an expert at creating Stable Diffusion prompts. Your response must exact
         {
             "character_or_scene_name": "<name>",
             "prompt": "<detailed prompt with style, lighting, camera angle>",
-            "negative_prompt": "<elements to avoid>"
+            "negative_prompt": "<elements to avoid>",
+            "search_query": "<search query for image>"
         }
     ],
     "final_answer": boolean
@@ -152,6 +153,3 @@ Response Rules:
 3. Make prompts specific and detailed
 4. Use consistent naming in character_or_scene_name
 """
-
-
-
