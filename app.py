@@ -13,6 +13,10 @@ import logging
 import time
 import requests
 from termcolor import colored
+import asyncio
+from search import perform_search, crawl_website
+from test import pdq_hash, DocumentIndex
+
 
 cookies = CookieManager()
 memory = MemorySaver()
@@ -34,8 +38,6 @@ try:
 except Exception as e:
     error(e)
 
-import asyncio
-from search import perform_search, crawl_website
 
 @st.cache_resource
 def get_graph():
@@ -117,25 +119,28 @@ def calculate_image_hash(image_bytes):
     """Calculate the hash of an image."""
     return hashlib.md5(image_bytes).hexdigest()
 
+lock = asyncio.Lock()  # Create an async lock
+
 async def perform_search_and_filter(query):
     valid_image_urls = []  # List to store valid image URLs
     unique_hashes = set()  # Set to track unique image hashes
     """Perform search and filter valid image URLs and fetch image bytes."""
     results = await perform_search(query)
-    print("in the perform search")
-    
+
+    index = DocumentIndex()  # Create an instance of DocumentIndex
+
     async def process_item(item):
         url = item['link']
         try:
+            print(colored(f"url : {url}","green"))
             response = await asyncio.to_thread(requests.get, url, allow_redirects=True, timeout=1)
             if response.status_code == 200:
                 img_bytes = BytesIO(response.content)
                 try:
-                    img = Image.open(img_bytes) # Verify it's a valid image
-                    image_hash = calculate_image_hash(img_bytes.getvalue())
-                    if image_hash not in unique_hashes:
-                        unique_hashes.add(image_hash)
-                        valid_image_urls.append(url) # Store URL only
+                    img = Image.open(img_bytes)  # Verify it's a valid image
+                    image_hash, perms = pdq_hash(img_bytes.getvalue())  # Get hash and permutations
+                    if await index.add_document(url, perms):  # Check for uniqueness
+                        valid_image_urls.append(url)  # Store URL only
                         logging.info(f"Valid and unique image URL found: {url}")
                     else:
                         logging.info(f"Duplicate image found, skipping: {url}")
@@ -148,19 +153,15 @@ async def perform_search_and_filter(query):
 
     tasks = [process_item(item) for item in results]
     await asyncio.gather(*tasks)
-    print("after the perform search")
-    logging.info(f"Search results: {results}")
-    # Save valid URLs to Redis (still save URLs for redis loading)  # Save each URL in a Redis list
     logging.info("Valid image URLs saved to Redis.")
-    return valid_image_urls # Return URLs
-
+    return valid_image_urls  # Return URLs
 
 
 def check_url_validity(url):
-    
+
     try:
         response = requests.head(url, allow_redirects=True, timeout=1)
-        print(colored(f"url {url} {response}","green"))
+        #print(colored(f"url {url} {response}","green"))
         return response.status_code == 200
     except requests.RequestException:
         return False
@@ -196,7 +197,7 @@ async def main():
     with col2:
         # Toggle for search functionality
         search_mode = st.toggle("Search Mode", key="search_mode_toggle", label_visibility="visible")
- 
+
     # Get or create session ID
     session_id = get_session_id()
 
@@ -221,7 +222,7 @@ async def main():
         search_query = st.chat_input("Search for images...")
         if search_query:
             valid_image_urls = await perform_search_and_filter(search_query) # Now returns URLs
-            print(colored(f"valid_images URLS: {valid_image_urls}", "blue")) # Debug: Print valid_images URLs
+            #print(colored(f"valid_images URLS: {valid_image_urls}", "blue")) # Debug: Print valid_images URLs
             num_columns = 3 # Define number of columns for display
             cols = st.columns(num_columns)
             async def display_image(i, image_url, cols):
@@ -267,4 +268,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-

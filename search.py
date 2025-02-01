@@ -81,7 +81,7 @@ async def perform_search(query=None, search_engine="duckduckgo"):
                         })
                 crawled_contents.extend(filtered_images)
             else:
-                print(f"failed")
+                print(f"search failed")
 
     # Filter and sort images by score (only include scores greater than 6)
     sorted_images = sorted(
@@ -142,7 +142,7 @@ async def crawl_website(url):
             if result.success:
                 crawled_contents.append(result.media.get("images", []))
             else:
-                print(f"failed")
+                print(f"searh failed")
 
     text_contents = [results[0].media]  # Assuming results contain a 'text' key
     return crawled_contents
