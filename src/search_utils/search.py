@@ -7,7 +7,7 @@ from crawl4ai.markdown_generation_strategy import DefaultMarkdownGenerator
 import os
 
 # Adjust the number of results returned by DuckDuckGo
-duckduckgo_search = DuckDuckGoSearchResults(output_format="list", num_results=10)  # Example: increase to 50 results
+duckduckgo_search = DuckDuckGoSearchResults(output_format="list", num_results=3)  # Example: increase to 50 results
 
 crawl4ai_search = AsyncWebCrawler()
 
@@ -39,7 +39,7 @@ async def perform_search(query=None, search_engine="duckduckgo"):
     dispatcher = MemoryAdaptiveDispatcher(
         memory_threshold_percent=70.0,
         check_interval=1.0,
-        max_session_permit=10
+        max_session_permit=20
     )
     run_config = CrawlerRunConfig(
         cache_mode=CacheMode.BYPASS,
@@ -47,7 +47,7 @@ async def perform_search(query=None, search_engine="duckduckgo"):
         markdown_generator=md_generator,
         scan_full_page=True,
         scroll_delay=0.2,
-        delay_before_return_html=1,
+        delay_before_return_html=0.2,
         simulate_user=True,
         wait_for_images=True,
         wait_until="domcontentloaded",
@@ -91,10 +91,10 @@ async def perform_search(query=None, search_engine="duckduckgo"):
     )
 
     # Prepare table headers
-    table_header = "| Score | Link | Src+Url |\n|---|---|---|\n"
-    table_rows = ""
-    for image in sorted_images:
-        table_rows += f"| {image.get('score', '')} | {image.get('link', '')} | {image.get('src+url', '')} |\n"
+    # table_header = "| Score | Link | Src+Url |\n|---|---|---|\n"
+    # table_rows = ""
+    # for image in sorted_images:
+    #     table_rows += f"| {image.get('score', '')} | {image.get('link', '')} | {image.get('src+url', '')} |\n"
 
     # print(table_header + table_rows)
     return sorted_images
@@ -158,6 +158,7 @@ def main():
         if choice == "1":
             query = input("Enter your search query: ")
             urls = asyncio.run(perform_search(query=query))
+            print(urls)
         elif choice == "2":
             url = input("Enter the URL to crawl: ")
             try:

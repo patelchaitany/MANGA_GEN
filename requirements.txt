@@ -12,7 +12,6 @@ pandas==2.2.3
 pydantic==2.10.6
 python-dotenv==1.0.1
 python_Levenshtein==0.26.1
-python_Levenshtein==0.26.1
 redis==5.2.1
 sentence_transformers==3.4.0
 streamlit==1.37.1
@@ -21,3 +20,7 @@ termcolor==2.5.0
 textgrad==0.1.6
 tqdm==4.66.5
 typing_extensions==4.12.2
+crawl4ai>=1.0.0
+opencv-python>=4.8.0
+Pillow>=10.0.0
+requests>=2.31.0

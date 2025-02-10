@@ -20,20 +20,20 @@ from langgraph.types import Command
 from typing_extensions import TypedDict
 from langchain_groq import ChatGroq
 
-from lang_work import create_agent,tool_node,summarize_conversation,delete_messages,supervisor
-from graph_state import State,Responce,AgentConfig,artist,artist_responce
-from agent_tool import Tools_Executor,Tool_list
-from prompt import writer_prompt,critic_prompt,genral_assistance,artist_prompt
+from src.agents.lang_work import create_agent,tool_node,summarize_conversation,delete_messages,supervisor
+from src.utils_func.graph_state import State,Responce,AgentConfig,artist,artist_responce,PromptImagePair
+from src.agents.agent_tool import Tools_Executor,Tool_list
+from src.agents.prompt import writer_prompt,critic_prompt,genral_assistance,artist_prompt
 from termcolor import colored
 from langchain_ollama import OllamaLLM 
 from langsmith import Client
 import os
-from utils import calculate_levenshtein_similarity, word_by_word_levenshtein
-from context_agent import get_highest_relevance_messages
+from src.utils_func.utils import calculate_levenshtein_similarity, word_by_word_levenshtein
+from src.agents.context_agent import get_highest_relevance_messages
 from dotenv import load_dotenv
-from search import perform_search
+from src.search_utils.search import perform_search
 import asyncio
-
+from src.search_utils.image_search import pdq_hash, DocumentIndex,perform_search_and_filter,fetch_image,check_url_validity
 # Load environment variables from .env file
 load_dotenv()
 
@@ -198,18 +198,22 @@ def artist_agent(llm, system_message: str, name: str, examples="", tools=None, s
                 if not isinstance(rsp, list):
                     rsp = [rsp]
                 
-                image_urls = []
+                prompt_images = []
                 for prompt in rsp:
                     if hasattr(prompt, "search_query"):
-                        image_urls.extend(asyncio.run(perform_search(query=prompt.search_query, search_engine="duckduckgo")))
-                    
+                        urls = asyncio.run(perform_search_and_filter(query=prompt.search_query))
+                        if urls:
+                            # Store all URLs found for this prompt
+                            prompt_image = PromptImagePair(prompt=prompt, image_urls=urls)
+                            prompt_images.append(prompt_image)
+                
                 return Command(
                     update={
                         "name": name,
                         "artist": [msg],
                         "stable_diffusion_prompts": rsp,
                         "messages": [writer_messages[-1]],
-                        "image_urls": image_urls
+                        "prompt_images": prompt_images
                     },
                     goto=END
                 )

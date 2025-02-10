@@ -34,6 +34,10 @@ class artist_responce(BaseModel):
     responce: List[PromptSchema] = Field(...,description="List of prompts for characters and scenes")
     final_answer : bool = Field(...,description="If user request is met or for asking the question to user then it should be True")
 
+class PromptImagePair(BaseModel):
+    prompt: PromptSchema
+    image_urls: List[str]
+
 class State(MessagesState):
     summary: str
     name: str
@@ -43,7 +47,7 @@ class State(MessagesState):
     artist: Annotated[Sequence[BaseMessage], operator.add]
     critic: Annotated[Sequence[BaseMessage], operator.add]
     genral_assistance_: Annotated[Sequence[BaseMessage], operator.add]
-    image_urls : List[str]
+    prompt_images: List[PromptImagePair] = []  # Store prompts with their associated images
     stable_diffusion_prompts: List[PromptSchema] = []
 
 def get_agent_name(agent:List[AgentConfig]) -> List[str]:

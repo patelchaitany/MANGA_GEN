@@ -4,7 +4,15 @@ import itertools
 import requests
 from io import BytesIO
 import asyncio
+import logging
+from termcolor import colored
+from PIL import Image, UnidentifiedImageError
+from src.search_utils.search import perform_search, crawl_website
+lock = asyncio.Lock()  # Create an async lock
 
+import base64
+import json
+import os
 def generate_permutations(hash_array, k=4):
     """Generate block permutations from hash array"""
     block_size = len(hash_array) // k
@@ -58,7 +66,7 @@ class DocumentIndex:
         self.documents = {}
         self._lock = asyncio.Lock()  # Initialize asyncio lock
 
-    async def add_document(self, doc_id, hash_permutations, uniqueness_threshold=20):
+    async def add_document(self, doc_id, hash_permutations, uniqueness_threshold=10):
         """Add document only if it's unique based on Hamming distance, using async lock"""
         new_hash = hash_permutations[0]
 
@@ -93,6 +101,85 @@ class DocumentIndex:
                 results.append((doc_id, distance))
                 
         return sorted(results, key=lambda x: x[1])
+
+
+async def fetch_image(url):
+    """Fetch image bytes from URL asynchronously."""
+    try:
+        response = requests.get(url, timeout=1)
+        if response.status_code == 200:
+            return BytesIO(response.content)
+        else:
+            logging.warning(f"Failed to fetch image from {url}: Status code {response.status_code}")
+            return None
+    except requests.RequestException as e:
+        logging.warning(f"Error fetching image from {url}: {e}")
+        return None
+
+
+
+async def perform_search_and_filter(query):
+    valid_image_urls = []  # List to store valid image URLs
+    unique_hashes = set()  # Set to track unique image hashes
+    """Perform search and filter valid image URLs and fetch image bytes."""
+    results = await perform_search(query)
+
+    index = DocumentIndex()  # Create an instance of DocumentIndex
+    clip_threshold = 0 # Threshold for CLIP relevance
+
+    async def process_item(item):
+        url = item['link']
+        try:
+            print(colored(f"url : {url}","green"))
+            response = await asyncio.to_thread(requests.get, url, allow_redirects=True, timeout=1)
+            if response.status_code == 200:
+                img_bytes = BytesIO(response.content)
+                try:
+                    img = Image.open(img_bytes)  # Verify it's a valid image
+                    image_hash, perms = pdq_hash(img_bytes.getvalue())  # Get hash and permutations
+                    if await index.add_document(url, perms):  # Check for uniqueness
+                        # Encode image to base64 for CLIP API
+                        img_base64 = base64.b64encode(img_bytes.getvalue()).decode('utf-8')
+                        clip_data = {'prompts': [query], 'images': [img_base64]}
+                        clip_api_url = os.environ.get('CLIP_API_URL', "http://0.0.0.0:5000/relevance") # Use CLIP_API_URL from .env or default
+                        try:
+                            clip_response = requests.post(clip_api_url, json=clip_data, timeout=2)
+                            if clip_response.status_code == 200:
+                                relevance_data = clip_response.json()
+                                highest_similarity_score = relevance_data['highest_similarity_results'][0]['highest_similarity_score']
+                                if highest_similarity_score >= clip_threshold:
+                                    valid_image_urls.append(url)  # Store URL only if relevant
+                                    logging.info(f"Valid, unique and relevant image URL found: {url} (Relevance Score: {highest_similarity_score})")
+                                else:
+                                    logging.info(f"Image URL found but not relevant, skipping: {url} (Relevance Score: {highest_similarity_score})")
+                            else:
+                                logging.warning(f"CLIP API request failed with status code: {clip_response.status_code}")
+                        except requests.RequestException as e:
+                            logging.warning(f"Error calling CLIP API: {e}")
+                    else:
+                        logging.info(f"Duplicate image found, skipping: {url}")
+                except UnidentifiedImageError:
+                    print(f"Invalid image format for URL: {url}")
+            else:
+                print(f"Invalid image URL: {url}")
+        except requests.RequestException:
+            print(f"Invalid image URL: {url}")
+
+    tasks = [process_item(item) for item in results]
+    await asyncio.gather(*tasks)
+    logging.info("Valid image URLs saved.") # Removed Redis specific log
+    return valid_image_urls  # Return URLs
+
+
+def check_url_validity(url):
+
+    try:
+        response = requests.head(url, allow_redirects=True, timeout=1)
+        #print(colored(f"url {url} {response}","green"))
+        return response.status_code == 200
+    except requests.RequestException:
+        return False
+
 
 # Example usage with improved comparison
 if __name__ == "__main__":
